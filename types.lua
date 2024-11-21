@@ -126,6 +126,7 @@
 ---@field position vector3
 
 ---@class PlayerEntity
+---@field id integer
 ---@field userId? integer
 ---@field citizenid string
 ---@field license string

@@ -42,7 +42,22 @@ end)
 
 ---@param coords vector3
 RegisterNetEvent('QBCore:Command:TeleportToPlayer', function(coords)
-    SetPedCoordsKeepVehicle(cache.ped, coords.x, coords.y, coords.z)
+    if GetConvarInt('qbx:experimental:teleport', 0) == 0 then
+        SetPedCoordsKeepVehicle(cache.ped, coords.x, coords.y, coords.z)
+    else
+        if IsPlayerSwitchInProgress() then return end
+        SwitchToMultiFirstpart(cache.ped, 0, 1)
+        CreateThread(function()
+            while IsPlayerSwitchInProgress() do
+                Wait(0)
+                SetCloudsAlpha(0)
+                HideHudAndRadarThisFrame()
+            end
+        end)
+        while GetPlayerSwitchState() ~= 5 do Wait(0) end
+        SetPedCoordsKeepVehicle(cache.ped, coords.x, coords.y, coords.z)
+        SwitchToMultiSecondpart(cache.ped)
+    end
 end)
 
 ---@param x number
@@ -50,7 +65,8 @@ end)
 ---@param z number
 ---@param h number
 RegisterNetEvent('QBCore:Command:TeleportToCoords', function(x, y, z, h)
-    SetPedCoordsKeepVehicle(cache.ped, x, y, z)
+    TriggerEvent('QBCore:Command:TeleportToPlayer', vec3(x, y, z))
+    -- SetPedCoordsKeepVehicle(cache.ped, x, y, z)
     SetEntityHeading(cache.ped, h or GetEntityHeading(cache.ped))
 end)
 
@@ -62,10 +78,24 @@ RegisterNetEvent('QBCore:Command:GoToMarker', function()
         return 'marker'
     end
 
-    -- Fade screen to hide how clients get teleported.
-    DoScreenFadeOut(650)
-    while not IsScreenFadedOut() do
-        Wait(0)
+    local isExperimentalTp = GetConvarInt('qbx:experimental:teleport', 0) == 1
+
+    if not isExperimentalTp then
+        -- Fade screen to hide how clients get teleported.
+        DoScreenFadeOut(650)
+        while not IsScreenFadedOut() do
+            Wait(0)
+        end
+    else
+        SwitchToMultiFirstpart(cache.ped, 0, 1)
+        CreateThread(function()
+            while IsPlayerSwitchInProgress() do
+                Wait(0)
+                SetCloudHatOpacity(0)
+                HideHudAndRadarThisFrame()
+            end
+        end)
+        while GetPlayerSwitchState() ~= 5 do Wait(0) end
     end
 
     local ped, coords <const> = cache.ped, GetBlipInfoIdCoord(blipMarker)
@@ -117,8 +147,10 @@ RegisterNetEvent('QBCore:Command:GoToMarker', function()
         Wait(0)
     end
 
-    -- Remove black screen once the loop has ended.
-    DoScreenFadeIn(650)
+    if not isExperimentalTp then
+        -- Remove black screen once the loop has ended.
+        DoScreenFadeIn(650)
+    end
     if vehicle > 0 then
         FreezeEntityPosition(vehicle, false)
     else
@@ -129,11 +161,18 @@ RegisterNetEvent('QBCore:Command:GoToMarker', function()
         -- If we can't find the coords, set the coords to the old ones.
         -- We don't unpack them before since they aren't in a loop and only called once.
         SetPedCoordsKeepVehicle(ped, oldCoords.x, oldCoords.y, oldCoords.z - 1.0)
+        if isExperimentalTp then
+            SwitchToMultiSecondpart(cache.ped)
+        end
         Notify(locale('error.tp_error'), 'error')
+        return
     end
 
     -- If Z coord was found, set coords in found coords.
     SetPedCoordsKeepVehicle(ped, x, y, groundZ)
+    if isExperimentalTp then
+        SwitchToMultiSecondpart(cache.ped)
+    end
     Notify(locale('success.teleported_waypoint'), 'success')
 end)
 
@@ -152,9 +191,10 @@ end)
 -- Other stuff
 
 ---@see client/functions.lua:QBCore.Functions.Notify
-RegisterNetEvent('QBCore:Notify', function(text, notifyType, duration, subTitle, notifyPosition, notifyStyle, notifyIcon, notifyIconColor)
-    Notify(text, notifyType, duration, subTitle, notifyPosition, notifyStyle, notifyIcon, notifyIconColor)
-end)
+RegisterNetEvent('QBCore:Notify',
+    function(text, notifyType, duration, subTitle, notifyPosition, notifyStyle, notifyIcon, notifyIconColor)
+        Notify(text, notifyType, duration, subTitle, notifyPosition, notifyStyle, notifyIcon, notifyIconColor)
+    end)
 
 -- Me command
 
@@ -181,7 +221,7 @@ AddStateBagChangeHandler('me', nil, function(bagName, _, value)
         local displayTime = 5000 + GetGameTimer()
         while displayTime > GetGameTimer() do
             playerPed = isLocalPlayer and cache.ped or GetPlayerPed(playerId)
-            qbx.drawText3d({text = value, coords = GetEntityCoords(playerPed)})
+            qbx.drawText3d({ text = value, coords = GetEntityCoords(playerPed) })
             Wait(0)
         end
     end)

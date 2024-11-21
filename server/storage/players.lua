@@ -92,7 +92,7 @@ local function deleteBan(request)
 end
 
 ---@param request UpsertPlayerRequest
-local function upsertPlayerEntity(request)
+local function upsertPlayerEntity(request)    
     MySQL.insert.await('INSERT INTO players (userId, citizenid, cid, license, name, money, charinfo, job, gang, position, metadata, last_logged_out) VALUES (:userId, :citizenid, :cid, :license, :name, :money, :charinfo, :job, :gang, :position, :metadata, :last_logged_out) ON DUPLICATE KEY UPDATE userId = :userId, name = :name, money = :money, charinfo = :charinfo, job = :job, gang = :gang, position = :position, metadata = :metadata, last_logged_out = :last_logged_out', {
         userId = request.playerEntity.userId,
         citizenid = request.playerEntity.citizenid,
@@ -128,7 +128,7 @@ local function fetchAllPlayerEntities(license2, license)
     ---@type PlayerEntity[]
     local chars = {}
     ---@type PlayerEntityDatabase[]
-    local result = MySQL.query.await('SELECT citizenid, charinfo, money, job, gang, position, metadata, UNIX_TIMESTAMP(last_logged_out) AS lastLoggedOutUnix FROM players WHERE license = ? OR license = ? ORDER BY cid', {license, license2})
+    local result = MySQL.query.await('SELECT id, citizenid, charinfo, money, job, gang, position, metadata, UNIX_TIMESTAMP(last_logged_out) AS lastLoggedOutUnix FROM players WHERE license = ? OR license = ? ORDER BY cid', {license, license2})
     for i = 1, #result do
         chars[i] = result[i]
         chars[i].charinfo = json.decode(result[i].charinfo)
@@ -147,9 +147,10 @@ end
 ---@return PlayerEntity?
 local function fetchPlayerEntity(citizenId)
     ---@type PlayerEntityDatabase
-    local player = MySQL.single.await('SELECT userId, citizenid, license, name, charinfo, money, job, gang, position, metadata, UNIX_TIMESTAMP(last_logged_out) AS lastLoggedOutUnix FROM players WHERE citizenid = ?', { citizenId })
+    local player = MySQL.single.await('SELECT id, userId, citizenid, license, name, charinfo, money, job, gang, position, metadata, UNIX_TIMESTAMP(last_logged_out) AS lastLoggedOutUnix FROM players WHERE citizenid = ?', { citizenId })
     local charinfo = player and json.decode(player.charinfo)
     return player and {
+        id = player.id,
         userId = player.userId,
         citizenid = player.citizenid,
         license = player.license,
