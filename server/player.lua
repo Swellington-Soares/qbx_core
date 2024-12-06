@@ -2,6 +2,7 @@ local config = require 'config.server'
 local defaultSpawn = require 'config.shared'.defaultSpawn
 local logger = require 'modules.logger'
 local storage = require 'server.storage.main'
+local triggerEventHooks = require 'modules.hooks'
 local maxJobsPerPlayer = GetConvarInt('qbx:max_jobs_per_player', 1)
 local maxGangsPerPlayer = GetConvarInt('qbx:max_gangs_per_player', 1)
 local setJobReplaces = GetConvar('qbx:setjob_replaces', 'true') == 'true'
@@ -23,19 +24,34 @@ function Login(source, citizenid, newData)
         return false
     end
 
-    local license = GetPlayerIdentifierByType(source --[[@as string]], 'license2') or GetPlayerIdentifierByType(source --[[@as string]], 'license')
-    local userId = storage.fetchUserByIdentifier(license)
+    if QBX.Players[source] then
+        DropPlayer(tostring(source), locale('info.exploit_dropped'))
+        logger.log({
+            source = GetInvokingResource() or cache.resource,
+            webhook = config.logging.webhook.anticheat,
+            event = 'Anti-Cheat',
+            color = 'white',
+            tags = config.logging.role,
+            message = ('%s [%s] Dropped for attempting to login twice'):format(GetPlayerName(tostring(source)), tostring(source))
+        })
+        return false
+    end
 
+    local license, license2 = GetPlayerIdentifierByType(source --[[@as string]], 'license'), GetPlayerIdentifierByType(source --[[@as string]], 'license2')
+    local userId = license2 and storage.fetchUserByIdentifier(license2) or storage.fetchUserByIdentifier(license)
+    if not userId then
+        lib.print.error('User does not exist. Licenses checked:', license2, license)
+        return false
+    end
     if citizenid then
         local playerData = storage.fetchPlayerEntity(citizenid)
-        if playerData and license == playerData.license then
+        if playerData and (playerData.license == license2 or playerData.license == license) then
             playerData.userId = userId
-
-            return not not CheckPlayerData(source, playerData)
+            return CheckPlayerData(source, playerData) ~= nil
         else
             DropPlayer(tostring(source), locale('info.exploit_dropped'))
             logger.log({
-                source = 'qbx_core',
+                source = GetInvokingResource() or cache.resource,
                 webhook = config.logging.webhook.anticheat,
                 event = 'Anti-Cheat',
                 color = 'white',
@@ -1195,6 +1211,12 @@ function AddMoney(identifier, moneyType, amount, reason)
 
     if amount < 0 or not player.PlayerData.money[moneyType] then return false end
 
+    if not triggerEventHooks('addMoney', {
+        source = player.PlayerData.source,
+        moneyType = moneyType,
+        amount = amount
+    }) then return false end
+
     player.PlayerData.money[moneyType] += amount
 
     if not player.Offline then
@@ -1235,6 +1257,12 @@ function RemoveMoney(identifier, moneyType, amount, reason)
     amount = qbx.math.round(tonumber(amount) --[[@as number]])
 
     if amount < 0 or not player.PlayerData.money[moneyType] then return false end
+
+    if not triggerEventHooks('removeMoney', {
+        source = player.PlayerData.source,
+        moneyType = moneyType,
+        amount = amount
+    }) then return false end
 
     for _, mType in pairs(config.money.dontAllowMinus) do
         if mType == moneyType then
@@ -1285,6 +1313,12 @@ function SetMoney(identifier, moneyType, amount, reason)
 
     if amount < 0 or not player.PlayerData.money[moneyType] then return false end
 
+    if not triggerEventHooks('setMoney', {
+        source = player.PlayerData.source,
+        moneyType = moneyType,
+        amount = amount
+    }) then return false end
+
     player.PlayerData.money[moneyType] = amount
 
     if not player.Offline then
@@ -1305,6 +1339,8 @@ function SetMoney(identifier, moneyType, amount, reason)
             message = ('**%s (citizenid: %s | id: %s)** $%s (%s) %s, new %s balance: $%s reason: %s'):format(GetPlayerName(player.PlayerData.source), player.PlayerData.citizenid, player.PlayerData.source, absDifference, moneyType, dirChange, moneyType, player.PlayerData.money[moneyType], reason),
             --oxLibTags = ('script:%s,playerName:%s,citizenId:%s,playerSource:%s,amount:%s,moneyType:%s,newBalance:%s,reason:%s,direction:%s'):format(resource, GetPlayerName(player.PlayerData.source), player.PlayerData.citizenid, player.PlayerData.source, absDifference, moneyType, player.PlayerData.money[moneyType], reason, dirChange)
         })
+
+        emitMoneyEvents(player.PlayerData.source, player.PlayerData.money, moneyType, absDifference, 'set', difference < 0, reason)
     end
 
     return true
